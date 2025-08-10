@@ -463,10 +463,23 @@ impl<'a> Tree<'a> {
             execute!(term, terminal::BeginSynchronizedUpdate,)?;
             let output = self.render(width, Some(&mut term));
             if output.did_clear_terminal_output || prev_canvas.as_ref() != Some(&output.canvas) {
-                if !output.did_clear_terminal_output {
+                if output.did_clear_terminal_output {
+                    // If the component explicitly asked to clear terminal output, do a full clear.
                     term.clear_canvas()?;
+                } else {
+                    // Otherwise, avoid clearing the whole region to reduce flicker:
+                    // move the cursor back to the start of the previously rendered canvas
+                    // and overwrite in-place.
+                    term.rewind_to_prev_canvas_start()?;
                 }
+                // Write the new canvas content.
                 term.write_canvas(&output.canvas)?;
+                // If the new canvas is shorter than the previous one, clear the leftover lines below.
+                if let Some(prev) = &prev_canvas {
+                    if prev.height() > output.canvas.height() {
+                        execute!(term, terminal::Clear(terminal::ClearType::FromCursorDown))?;
+                    }
+                }
             }
             prev_canvas = Some(output.canvas);
             execute!(term, terminal::EndSynchronizedUpdate)?;

@@ -115,6 +115,8 @@ trait TerminalImpl: Write + Send {
     fn width(&self) -> Option<u16>;
     fn is_raw_mode_enabled(&self) -> bool;
     fn clear_canvas(&mut self) -> io::Result<()>;
+    /// Move the cursor back to the top of the previously rendered canvas without clearing.
+    fn rewind_to_prev_canvas_start(&mut self) -> io::Result<()>;
     fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()>;
     fn event_stream(&mut self) -> io::Result<BoxStream<'static, TerminalEvent>>;
 }
@@ -157,6 +159,14 @@ impl TerminalImpl for StdTerminal {
             cursor::MoveToPreviousLine(lines_to_rewind as _),
             terminal::Clear(terminal::ClearType::FromCursorDown)
         )
+    }
+
+    fn rewind_to_prev_canvas_start(&mut self) -> io::Result<()> {
+        if self.prev_canvas_height == 0 {
+            return Ok(());
+        }
+        let lines_to_rewind = self.prev_canvas_height - if self.fullscreen { 1 } else { 0 };
+        queue!(self.dest, cursor::MoveToPreviousLine(lines_to_rewind as _))
     }
 
     fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
@@ -341,6 +351,10 @@ impl TerminalImpl for MockTerminal {
         Ok(())
     }
 
+    fn rewind_to_prev_canvas_start(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
     fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
         let _ = self.output.unbounded_send(canvas.clone());
         Ok(())
@@ -397,6 +411,11 @@ impl Terminal {
 
     pub fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
         self.inner.write_canvas(canvas)
+    }
+
+    /// Rewinds the cursor to the start of the previously rendered canvas without clearing it.
+    pub fn rewind_to_prev_canvas_start(&mut self) -> io::Result<()> {
+        self.inner.rewind_to_prev_canvas_start()
     }
 
     pub fn received_ctrl_c(&self) -> bool {
