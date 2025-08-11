@@ -16,5 +16,8 @@ pub use text::*;
 mod text_input;
 pub use text_input::*;
 
+mod static_component;
+pub use static_component::*;
+
 mod view;
 pub use view::*;
