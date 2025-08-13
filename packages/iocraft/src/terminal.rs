@@ -85,6 +85,8 @@ pub enum TerminalEvent {
     FullscreenMouse(FullscreenMouseEvent),
     /// A resize event, fired when the terminal is resized.
     Resize(u16, u16),
+    /// A paste event, fired when text is pasted into the terminal.
+    Paste(String),
 }
 
 struct TerminalEventsInner {
@@ -193,6 +195,8 @@ impl TerminalImpl for StdTerminal {
                         }))
                     }
                     Ok(Event::Resize(width, height)) => Some(TerminalEvent::Resize(width, height)),
+                    #[cfg(feature = "bracketed-paste")]
+                    Ok(Event::Paste(data)) => Some(TerminalEvent::Paste(data)),
                     _ => None,
                 }
             })
@@ -235,12 +239,16 @@ impl StdTerminal {
                 if self.fullscreen {
                     execute!(self.dest, event::EnableMouseCapture)?;
                 }
+                #[cfg(feature = "bracketed-paste")]
+                execute!(self.dest, event::EnableBracketedPaste)?;
                 terminal::enable_raw_mode()?;
             } else {
                 terminal::disable_raw_mode()?;
                 if self.fullscreen {
                     execute!(self.dest, event::DisableMouseCapture)?;
                 }
+                #[cfg(feature = "bracketed-paste")]
+                execute!(self.dest, event::DisableBracketedPaste)?;
                 if self.enabled_keyboard_enhancement {
                     execute!(self.dest, event::PopKeyboardEnhancementFlags)?;
                 }
