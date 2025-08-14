@@ -13,6 +13,9 @@ mod private {
 /// `UseOutput` is a hook that allows you to write to stdout and stderr from a component. The
 /// output will be appended to stdout or stderr, above the rendered component output.
 ///
+/// Both `print` and `println` methods are available for writing output with or without newlines.
+/// For stderr, both `print` and `eprint` methods are available (they are equivalent).
+///
 /// # Example
 ///
 /// ```
@@ -27,6 +30,14 @@ mod private {
 ///             smol::Timer::after(Duration::from_secs(1)).await;
 ///             stdout.println("Hello from iocraft to stdout!");
 ///             stderr.println("  And hello to stderr too!");
+///
+///             // Using print without newline
+///             stdout.print("Progress: ");
+///             stdout.println("50%");
+///
+///             // Using eprint for stderr (equivalent to stderr.print)
+///             stderr.eprint("Error: ");
+///             stderr.println("Something went wrong");
 ///         }
 ///     });
 ///
@@ -51,7 +62,9 @@ impl UseOutput for Hooks<'_, '_> {
 
 enum Message {
     Stdout(String),
+    StdoutNoNewline(String),
     Stderr(String),
+    StderrNoNewline(String),
 }
 
 #[derive(Default)]
@@ -76,12 +89,18 @@ impl UseOutputState {
                         println!("{}", msg)
                     }
                 }
+                Message::StdoutNoNewline(msg) => {
+                    print!("{}", msg)
+                }
                 Message::Stderr(msg) => {
                     if needs_carriage_returns {
                         eprint!("{}\r\n", msg)
                     } else {
                         eprintln!("{}", msg)
                     }
+                }
+                Message::StderrNoNewline(msg) => {
+                    eprint!("{}", msg)
                 }
             }
         }
@@ -104,6 +123,16 @@ impl StdoutHandle {
             waker.wake();
         }
     }
+
+    /// Queues a message to be written asynchronously to stdout without a newline, above the
+    /// rendered component output.
+    pub fn print<S: ToString>(&self, msg: S) {
+        let mut state = self.state.lock().unwrap();
+        state.queue.push(Message::StdoutNoNewline(msg.to_string()));
+        if let Some(waker) = state.waker.take() {
+            waker.wake();
+        }
+    }
 }
 
 /// A handle to write to stderr, obtained from [`UseOutput::use_output`].
@@ -121,6 +150,22 @@ impl StderrHandle {
         if let Some(waker) = state.waker.take() {
             waker.wake();
         }
+    }
+
+    /// Queues a message to be written asynchronously to stderr without a newline, above the
+    /// rendered component output.
+    pub fn print<S: ToString>(&self, msg: S) {
+        let mut state = self.state.lock().unwrap();
+        state.queue.push(Message::StderrNoNewline(msg.to_string()));
+        if let Some(waker) = state.waker.take() {
+            waker.wake();
+        }
+    }
+
+    /// Queues a message to be written asynchronously to stderr without a newline, above the
+    /// rendered component output. This is an alias for `print` to match Rust's standard library.
+    pub fn eprint<S: ToString>(&self, msg: S) {
+        self.print(msg)
     }
 }
 
@@ -192,6 +237,21 @@ mod tests {
                 .poll_change(&mut core::task::Context::from_waker(&noop_waker())),
             Poll::Ready(())
         );
+
+        // Test print methods
+        stdout.print("Hello, ");
+        stdout.print("world!");
+        stderr.print("Error: ");
+        stderr.print("test");
+
+        // Test eprint method (should be equivalent to print)
+        stderr.eprint("Warning: ");
+        stderr.eprint("eprint test");
+        assert_eq!(
+            Pin::new(&mut use_output)
+                .poll_change(&mut core::task::Context::from_waker(&noop_waker())),
+            Poll::Ready(())
+        );
     }
 
     #[component]
@@ -200,6 +260,13 @@ mod tests {
         let (stdout, stderr) = hooks.use_output();
         stdout.println("Hello, world!");
         stderr.println("Hello, error!");
+        stdout.print("Testing ");
+        stdout.print("print ");
+        stdout.println("method!");
+        stderr.print("Error: ");
+        stderr.println("test");
+        stderr.eprint("Warning: ");
+        stderr.println("eprint test");
         system.exit();
         element!(View)
     }
